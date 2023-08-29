@@ -51,6 +51,9 @@
 #include <stdio.h>            // printf
 #include <stdlib.h>           // EXIT_FAILURE
 
+#include <chrono>
+#include <string>
+
 #define CHECK_CUDA(func)                                                       \
 {                                                                              \
     cudaError_t status = (func);                                               \
@@ -71,7 +74,9 @@
     }                                                                          \
 }
 
-int main(void) {
+using clock = std::chrono::high_resolution_clock;
+
+int bench_cuda(int repeat) {
     // Host problem definition
     const int A_num_rows      = 4;
     const int A_num_cols      = 4;
@@ -132,9 +137,16 @@ int main(void) {
     CHECK_CUDA( cudaMalloc(&dBuffer, bufferSize) )
 
     // execute SpMV
-    CHECK_CUSPARSE( cusparseSpMV(handle, CUSPARSE_OPERATION_NON_TRANSPOSE,
-                                 &alpha, matA, vecX, &beta, vecY, CUDA_R_32F,
-                                 CUSPARSE_SPMV_ALG_DEFAULT, dBuffer) )
+    auto start = clock::now();
+    for (int i = 0; i < repeat; ++i) {
+      CHECK_CUSPARSE( cusparseSpMV(handle, CUSPARSE_OPERATION_NON_TRANSPOSE,
+                                  &alpha, matA, vecX, &beta, vecY, CUDA_R_32F,
+                                  CUSPARSE_SPMV_ALG_DEFAULT, dBuffer) )
+    }
+    cudaStreamSynchronize(nullptr);
+    auto end = clock::now();
+    double seconds = std::chrono::duration_cast<std::chrono::duration<double>>(end - start).count() / static_cast<double>(runs);
+    std::cout << "bench_cuda: " << seconds / repeat << "s/it" << std::endl;
 
     // destroy matrix/vector descriptors
     CHECK_CUSPARSE( cusparseDestroySpMat(matA) )
@@ -165,4 +177,11 @@ int main(void) {
     CHECK_CUDA( cudaFree(dX) )
     CHECK_CUDA( cudaFree(dY) )
     return EXIT_SUCCESS;
+}
+
+int main(int argc, char **argv) {
+  if (argc != 2)
+    return 1;
+  int repeat = std::stoi(argv[1]);
+  return bench_cuda(repeat);
 }
